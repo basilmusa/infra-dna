@@ -1,0 +1,15 @@
+[project]
+name = "infra-dna"
+version = "0.1.0"
+description = "YAML parser and validator for infrastructure graph data"
+requires-python = ">=3.12"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+infra-dna-parse = "infra_dna.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

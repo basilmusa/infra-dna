@@ -1,0 +1,159 @@
+# infra-dna
+
+`infra-dna` is a Python CLI for validating infrastructure graph data stored as YAML under an `arch/` directory.
+
+It performs two passes over the YAML files:
+
+- first pass: reads and validates `entities`
+- second pass: reads and validates `relations`
+
+If validation succeeds, it reports how many entities and relations were accepted. If validation fails, it prints all collected errors and exits with a non-zero status.
+
+## Requirements
+
+- Python `3.12+`
+- `PyYAML`
+
+## Install
+
+From the repository root:
+
+```bash
+pip install -e .
+```
+
+This installs the console script:
+
+```bash
+infra-dna-parse
+```
+
+You can also run the CLI directly without installing:
+
+```bash
+python3 -m infra_dna.cli
+```
+
+## CLI Usage
+
+```bash
+infra-dna-parse [arch_path] [--print-records]
+```
+
+Arguments:
+
+- `arch_path`: optional path to the directory containing YAML files. Defaults to `arch`.
+- `--print-records`: print validated entity and relation records after a successful parse.
+
+Examples:
+
+```bash
+infra-dna-parse
+```
+
+```bash
+infra-dna-parse arch
+```
+
+```bash
+infra-dna-parse ./arch --print-records
+```
+
+```bash
+python3 -m infra_dna.cli ./arch --print-records
+```
+
+## Expected YAML Format
+
+The parser discovers all `.yml` and `.yaml` files recursively under the target directory.
+
+Filenames do not define behavior. A file is parsed based on its top-level keys:
+
+- `entities`
+- `relations`
+
+A single file may contain either section or both.
+
+### Entities
+
+```yaml
+entities:
+  - kind: vendor
+    key: edgecorp
+
+  - kind: domain
+    key: example-app.test
+    props:
+      monthly_visits: 42000
+      monthly_visits_raw: "42K"
+```
+
+Rules:
+
+- `entities` must be a list
+- each entity must be a mapping
+- each entity must have non-empty string fields `kind` and `key`
+- `props` is optional, but if present must be a mapping
+- entity identity is case-sensitive and unique by `(kind, key)` across all files
+
+### Relations
+
+```yaml
+relations:
+  - from:
+      kind: vendor
+      key: edgecorp
+    type: PROVIDES
+    to:
+      kind: domain
+      key: example-app.test
+    props:
+      role: cdn
+```
+
+Rules:
+
+- `relations` must be a list
+- each relation must be a mapping
+- each relation must have `from`, `type`, and `to`
+- `from` and `to` must be mappings with non-empty string `kind` and `key`
+- `props` is optional, but if present must be a mapping
+- relation identity is case-sensitive and unique by `(from.kind, from.key, type, to.kind, to.key)` across all files
+- relation endpoints must reference entities that exist in the parsed entity set
+
+## Validation Behavior
+
+The parser is strict.
+
+- top-level keys other than `entities` and `relations` are reported as errors
+- YAML documents must be mappings
+- malformed entity and relation records are reported as errors
+- duplicate entities and duplicate relations are reported with all conflicting source locations
+- all validation errors are collected and printed together
+
+If the run contains any validation error, no records are dispatched to consumers.
+
+## Successful Output
+
+Example:
+
+```text
+Validated 2 entities and 1 relations.
+```
+
+With `--print-records`, validated records are printed after a successful parse.
+
+## Error Output
+
+Example:
+
+```text
+Unknown top-level keys: relation
+  - arch/example.yml:document[0]
+Relation references unknown entities: to=(domain, missing-service.test)
+  - arch/example.yml:relations[0]
+```
+
+## Notes About The Current Repository Data
+
+The current files under [`arch/`](./arch) still use an older schema, so the CLI will report validation errors until those files are migrated to the format documented above.
