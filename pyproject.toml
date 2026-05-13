@@ -4,11 +4,15 @@ version = "0.1.0"
 description = "YAML parser and validator for infrastructure graph data"
 requires-python = ">=3.12"
 dependencies = [
+  "neo4j>=6,<7",
   "PyYAML>=6.0",
 ]
 
 [project.scripts]
-infra-dna-parse = "infra_dna.cli:main"
+infra-dna = "infra_dna.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["infra_dna*"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -85,3 +85,17 @@ The system SHALL expose entities and relations as canonical parsed records to pl
 #### Scenario: Consumer receives parsed relations
 - **WHEN** the parser successfully validates a relation record during the relation pass
 - **THEN** it dispatches that relation to the configured consumer interface
+
+### Requirement: Parser CLI is exposed as infra-dna
+The system SHALL expose the installed parser CLI through the `infra-dna` command name as the primary user-facing executable for project workflows.
+
+#### Scenario: Installed CLI uses the new command name
+- **WHEN** the project is installed through the supported package workflow
+- **THEN** the primary installed console command is `infra-dna`
+
+### Requirement: Parser remains executable as a Python module
+The system SHALL continue to support direct module execution through `python -m infra_dna.cli` in addition to the installed `infra-dna` console command.
+
+#### Scenario: Module execution remains supported
+- **WHEN** a user runs `python -m infra_dna.cli` from a correctly configured project environment
+- **THEN** the parser CLI executes successfully without requiring the installed console script name

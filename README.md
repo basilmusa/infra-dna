@@ -13,10 +13,20 @@ If validation succeeds, it reports how many entities and relations were accepted
 
 - Python `3.12+`
 - `PyYAML`
+- `neo4j`
 
 ## Install
 
+The supported local workflow uses a repo-local virtual environment named `.venv`.
+
 From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Then install the project in editable mode:
 
 ```bash
 pip install -e .
@@ -25,10 +35,12 @@ pip install -e .
 This installs the console script:
 
 ```bash
-infra-dna-parse
+infra-dna
 ```
 
-You can also run the CLI directly without installing:
+The recommended development install is editable so local code changes are reflected without reinstalling.
+
+You can also run the CLI directly through Python from the same activated environment:
 
 ```bash
 python3 -m infra_dna.cli
@@ -37,7 +49,7 @@ python3 -m infra_dna.cli
 ## CLI Usage
 
 ```bash
-infra-dna-parse [arch_path] [--print-records]
+infra-dna [arch_path] [--print-records]
 ```
 
 Arguments:
@@ -48,20 +60,25 @@ Arguments:
 Examples:
 
 ```bash
-infra-dna-parse
+infra-dna
 ```
 
 ```bash
-infra-dna-parse arch
+infra-dna arch
 ```
 
 ```bash
-infra-dna-parse ./arch --print-records
+infra-dna ./arch --print-records
 ```
 
 ```bash
 python3 -m infra_dna.cli ./arch --print-records
 ```
+
+Both commands are supported from the configured project environment:
+
+- `infra-dna` is the primary installed CLI
+- `python3 -m infra_dna.cli` remains the secondary direct module entrypoint
 
 ## Expected YAML Format
 
