@@ -125,6 +125,11 @@ class GraphParser:
         return sorted(files)
 
     def parse(self) -> ParseResult:
+        """
+        This parser is intentionally not fully streaming: it validates the full
+        dataset first, aggregates all errors, and only dispatches records to
+        consumers after the entire run is known-valid.
+        """
         state = _ParserState()
         files = self.discover_files()
 
@@ -147,6 +152,10 @@ class GraphParser:
         )
 
         if result.is_valid:
+            # The consumers are being run on the result: ParseResult object
+            # and not real streaming. We can change that later if needed
+            # (assuming high counts of entities and relations encountered
+            # in the future)
             self._dispatch(result)
 
         return result
