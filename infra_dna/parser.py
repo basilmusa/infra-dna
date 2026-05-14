@@ -48,11 +48,13 @@ class GraphParser:
         ]
         return sorted(files)
 
-    def parse(self) -> ParseResult:
+    def parse(self, dispatch: bool = True) -> ParseResult:
         """
         This parser is intentionally not fully streaming: it validates the full
         dataset first, aggregates all errors, and only dispatches records to
-        consumers after the entire run is known-valid.
+        consumers after the entire run is known-valid. Callers may defer
+        dispatch so they can make post-validation decisions before any
+        consumer side effects begin.
         """
         state = _ParserState()
         files = self.discover_files()
@@ -75,27 +77,31 @@ class GraphParser:
             errors=tuple(state.errors),
         )
 
-        if result.is_valid:
-            # The consumers are being run on the result: ParseResult object
-            # and not real streaming. We can change that later if needed
-            # (assuming high counts of entities and relations encountered
-            # in the future)
-            self._dispatch(result)
+        if dispatch:
+            self.dispatch(result)
 
         return result
 
-    def _dispatch(self, result: ParseResult) -> None:
+    def dispatch(
+        self,
+        result: ParseResult,
+        consumers: Iterable[GraphConsumer] | None = None,
+    ) -> None:
+        if not result.is_valid:
+            return
+
+        active_consumers = list(self._consumers if consumers is None else consumers)
         started_consumers: list[GraphConsumer] = []
         try:
-            for consumer in self._consumers:
-                consumer.on_start()
+            for consumer in active_consumers:
                 started_consumers.append(consumer)
+                consumer.on_start()
 
             for entity in result.entities:
-                for consumer in self._consumers:
+                for consumer in active_consumers:
                     consumer.on_entity(entity)
             for relation in result.relations:
-                for consumer in self._consumers:
+                for consumer in active_consumers:
                     consumer.on_relation(relation)
         finally:
             for consumer in reversed(started_consumers):

@@ -337,6 +337,86 @@ class GraphParserTests(unittest.TestCase):
             )
         )
 
+    def test_parse_can_defer_dispatch_until_caller_decides(self) -> None:
+        """
+        GIVEN a valid graph and a configured consumer
+        WHEN the parser runs with dispatch disabled and the caller dispatches later
+        THEN we expect validation to succeed first and consumer callbacks to run only during explicit dispatch
+        """
+        tempdir, arch_path = self.make_arch()
+        self.addCleanup(tempdir.cleanup)
+        self.write_yaml(
+            arch_path / "graph.yml",
+            """
+            entities:
+              - kind: vendor
+                key: edgecorp
+              - kind: domain
+                key: example-app.test
+            relations:
+              - from:
+                  kind: vendor
+                  key: edgecorp
+                type: provides
+                to:
+                  kind: domain
+                  key: example-app.test
+            """,
+        )
+
+        consumer = RecordingConsumer()
+        parser = GraphParser(arch_path, consumers=[consumer])
+
+        result = parser.parse(dispatch=False)
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual([], consumer.events)
+
+        parser.dispatch(result)
+
+        self.assertEqual(
+            [
+                "start",
+                ("entity", ("vendor", "edgecorp")),
+                ("entity", ("domain", "example-app.test")),
+                ("relation", ("vendor", "edgecorp", "provides", "domain", "example-app.test")),
+                "finish",
+            ],
+            consumer.events,
+        )
+
+    def test_dispatch_skips_invalid_results(self) -> None:
+        """
+        GIVEN an invalid parse result and a configured consumer
+        WHEN the caller tries to dispatch it explicitly
+        THEN we expect no lifecycle or record callbacks to be invoked
+        """
+        tempdir, arch_path = self.make_arch()
+        self.addCleanup(tempdir.cleanup)
+        self.write_yaml(
+            arch_path / "graph.yml",
+            """
+            relations:
+              - from:
+                  kind: vendor
+                  key: edgecorp
+                type: provides
+                to:
+                  kind: domain
+                  key: missing.example
+            """,
+        )
+
+        consumer = RecordingConsumer()
+        parser = GraphParser(arch_path, consumers=[consumer])
+        result = parser.parse(dispatch=False)
+
+        self.assertFalse(result.is_valid)
+
+        parser.dispatch(result)
+
+        self.assertEqual([], consumer.events)
+
 
 if __name__ == "__main__":
     unittest.main()

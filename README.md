@@ -1,13 +1,13 @@
 # infra-dna
 
-`infra-dna` is a Python CLI for validating infrastructure graph data stored as YAML under an `arch/` directory.
+`infra-dna` is a Python CLI for validating infrastructure graph data stored as YAML under an `arch/` directory and loading the validated graph into Neo4j.
 
 It performs two passes over the YAML files:
 
 - first pass: reads and validates `entities`
 - second pass: reads and validates `relations`
 
-If validation succeeds, it reports how many entities and relations were accepted. If validation fails, it prints all collected errors and exits with a non-zero status.
+If validation succeeds, the default CLI workflow clears the configured Neo4j database contents and reloads the validated graph. If validation fails, it prints all collected errors and exits with a non-zero status.
 
 ## Requirements
 
@@ -46,6 +46,28 @@ You can also run the CLI directly through Python from the same activated environ
 python3 -m infra_dna.cli
 ```
 
+## Neo4j Configuration
+
+The default load workflow uses a top-level runtime config file named `infra-dna.toml`.
+
+Start by copying the checked-in example file:
+
+```bash
+cp infra-dna.example.toml infra-dna.toml
+```
+
+Then update it with your local Neo4j connection settings:
+
+```toml
+[neo4j]
+uri = "bolt://localhost:7687"
+username = "neo4j"
+password = "replace-me"
+database = "neo4j"
+```
+
+`infra-dna.toml` is intended to stay local and is ignored by git. `infra-dna.example.toml` remains tracked as the template.
+
 ## Development
 
 Activate the repo-local environment before development work:
@@ -69,12 +91,15 @@ If you prefer to invoke the virtual environment directly without activating it:
 ## CLI Usage
 
 ```bash
-infra-dna [arch_path] [--print-records]
+infra-dna [arch_path] [--config PATH] [--validate-only] [--force] [--print-records]
 ```
 
 Arguments:
 
 - `arch_path`: optional path to the directory containing YAML files. Defaults to `arch`.
+- `--config PATH`: optional path to the runtime config file. Defaults to `infra-dna.toml`.
+- `--validate-only`: validate YAML without prompting for or loading Neo4j.
+- `--force`: skip the interactive confirmation prompt before clearing and reloading Neo4j.
 - `--print-records`: print validated entity and relation records after a successful parse.
 
 Examples:
@@ -84,15 +109,15 @@ infra-dna
 ```
 
 ```bash
-infra-dna arch
+infra-dna ./arch --validate-only
 ```
 
 ```bash
-infra-dna ./arch --print-records
+infra-dna ./arch --config ./infra-dna.toml --force
 ```
 
 ```bash
-python3 -m infra_dna.cli ./arch --print-records
+python3 -m infra_dna.cli ./arch --validate-only --print-records
 ```
 
 Both commands are supported from the configured project environment:
@@ -171,15 +196,6 @@ The parser is strict.
 
 If the run contains any validation error, no records are dispatched to consumers.
 
-## Neo4j Loading Components
-
-The package also exposes library components for loading validated records into Neo4j:
-
-- `Neo4jService(uri, username, password, database=None)` manages the Neo4j driver, executes queries, clears graph contents, and ensures the `:Entity(kind, key)` uniqueness constraint
-- `Neo4jVisitorHandler(service)` implements the parser consumer interface and uses `on_start()` to clear the graph and ensure schema, `on_entity()` to `MERGE` entity nodes, `on_relation()` to `MERGE` relationships, and `on_finish()` to close the service
-
-These components use constructor injection only. They do not read a configuration file, and the current integration point is the Python library rather than a dedicated Neo4j CLI command.
-
 ## Successful Output
 
 Example:
@@ -188,7 +204,27 @@ Example:
 Validated 2 entities and 1 relations.
 ```
 
-With `--print-records`, validated records are printed after a successful parse.
+In Neo4j load mode, a successful run also reports the configured database target:
+
+```text
+Loaded graph into Neo4j database 'neo4j' at bolt://localhost:7687.
+```
+
+With `--print-records`, validated records are printed after a successful parse and before the final summary.
+
+## Neo4j Load Behavior
+
+The default CLI workflow is destructive with respect to the configured Neo4j database:
+
+- it validates YAML first
+- it prompts before loading when running interactively
+- it clears all existing nodes and relationships from the configured Neo4j database
+- it recreates the required `:Entity(kind, key)` uniqueness constraint
+- it reloads the graph from the validated YAML
+
+If you only want validation, use `--validate-only`.
+
+If you are running in automation or another non-interactive environment, use `--force` to explicitly bypass the confirmation prompt.
 
 ## Error Output
 
@@ -200,7 +236,3 @@ Unknown top-level keys: relation
 Relation references unknown entities: to=(domain, missing-service.test)
   - arch/example.yml:relations[0]
 ```
-
-## Notes About The Current Repository Data
-
-The current files under [`arch/`](./arch) still use an older schema, so the CLI will report validation errors until those files are migrated to the format documented above.

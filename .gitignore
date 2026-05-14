@@ -32,3 +32,4 @@ htmlcov/
 
 # Local tooling
 .python-version
+infra-dna.toml

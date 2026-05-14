@@ -1,8 +1,4 @@
-## Purpose
-
-Define the expected behavior for connecting to Neo4j and loading validated graph records into a target database.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Neo4j service connects through constructor-injected parameters
 The system SHALL provide a `Neo4jService` that connects to a target Neo4j database using connection parameters supplied through its constructor. The service MUST NOT require a configuration file to establish the connection. The service SHALL support executing Cypher queries against the configured database and closing the underlying Neo4j connection when loading is complete.
