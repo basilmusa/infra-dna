@@ -5,20 +5,30 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from infra_dna.consumers import CallbackConsumer
+from infra_dna.consumers import CallbackConsumer, GraphConsumer
+from infra_dna.models import EntityRecord, RelationRecord
 from infra_dna.parser import GraphParser
 
 
-class RecordingConsumer:
+class RecordingConsumer(GraphConsumer):
     def __init__(self) -> None:
-        self.entities = []
-        self.relations = []
+        self.events: list[object] = []
+        self.entities: list[EntityRecord] = []
+        self.relations: list[RelationRecord] = []
 
-    def on_entity(self, entity: object) -> None:
+    def on_start(self) -> None:
+        self.events.append("start")
+
+    def on_entity(self, entity: EntityRecord) -> None:
+        self.events.append(("entity", entity.identity))
         self.entities.append(entity)
 
-    def on_relation(self, relation: object) -> None:
+    def on_relation(self, relation: RelationRecord) -> None:
+        self.events.append(("relation", relation.identity))
         self.relations.append(relation)
+
+    def on_finish(self) -> None:
+        self.events.append("finish")
 
 
 class GraphParserTests(unittest.TestCase):
@@ -33,6 +43,11 @@ class GraphParserTests(unittest.TestCase):
         path.write_text(textwrap.dedent(content).strip() + "\n", encoding="utf-8")
 
     def test_recursive_discovery_and_mixed_documents(self) -> None:
+        """
+        GIVEN nested YAML files where one mixed document defines entities and relations
+        WHEN the parser scans the arch directory recursively
+        THEN we expect all valid entities and relations to be discovered and accepted
+        """
         tempdir, arch_path = self.make_arch()
         self.addCleanup(tempdir.cleanup)
 
@@ -46,7 +61,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -70,6 +85,11 @@ class GraphParserTests(unittest.TestCase):
         self.assertEqual(1, len(result.relations))
 
     def test_strict_top_level_validation(self) -> None:
+        """
+        GIVEN a YAML document with an unknown top-level key
+        WHEN the parser validates the document shape
+        THEN we expect a validation error for the unexpected key
+        """
         tempdir, arch_path = self.make_arch()
         self.addCleanup(tempdir.cleanup)
 
@@ -90,6 +110,11 @@ class GraphParserTests(unittest.TestCase):
         self.assertTrue(any("Unknown top-level keys: relation" in message for message in messages))
 
     def test_malformed_records_are_reported(self) -> None:
+        """
+        GIVEN entity and relation records with malformed fields
+        WHEN the parser validates those records
+        THEN we expect aggregated validation errors describing each malformed field
+        """
         tempdir, arch_path = self.make_arch()
         self.addCleanup(tempdir.cleanup)
 
@@ -103,7 +128,7 @@ class GraphParserTests(unittest.TestCase):
                 props: wrong
             relations:
               - from: wrong
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -119,6 +144,11 @@ class GraphParserTests(unittest.TestCase):
         self.assertTrue(any("Relation field 'from' must be a mapping" in message for message in messages))
 
     def test_duplicate_reporting_includes_all_occurrences(self) -> None:
+        """
+        GIVEN duplicate entity and relation identities across multiple files
+        WHEN the parser validates the full input set
+        THEN we expect duplicate errors that include every conflicting occurrence
+        """
         tempdir, arch_path = self.make_arch()
         self.addCleanup(tempdir.cleanup)
 
@@ -134,7 +164,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -150,7 +180,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -166,7 +196,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -185,6 +215,11 @@ class GraphParserTests(unittest.TestCase):
         self.assertEqual(3, len(duplicate_relation_error.locations))
 
     def test_missing_entity_references_and_consumer_dispatch(self) -> None:
+        """
+        GIVEN a valid graph first and then a second run with a missing relation endpoint
+        WHEN the parser dispatches consumers for the valid run and validates the invalid run
+        THEN we expect lifecycle-ordered consumer callbacks only for the valid run and none for the invalid one
+        """
         tempdir, arch_path = self.make_arch()
         self.addCleanup(tempdir.cleanup)
 
@@ -200,7 +235,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: somedomain.com
@@ -208,8 +243,8 @@ class GraphParserTests(unittest.TestCase):
         )
 
         recording_consumer = RecordingConsumer()
-        callback_entities = []
-        callback_relations = []
+        callback_entities: list[EntityRecord] = []
+        callback_relations: list[RelationRecord] = []
         callback_consumer = CallbackConsumer(
             on_entity_callback=callback_entities.append,
             on_relation_callback=callback_relations.append,
@@ -225,6 +260,16 @@ class GraphParserTests(unittest.TestCase):
         self.assertEqual(1, len(recording_consumer.relations))
         self.assertEqual(2, len(callback_entities))
         self.assertEqual(1, len(callback_relations))
+        self.assertEqual(
+            [
+                "start",
+                ("entity", ("vendor", "cloudflare")),
+                ("entity", ("domain", "somedomain.com")),
+                ("relation", ("vendor", "cloudflare", "provides", "domain", "somedomain.com")),
+                "finish",
+            ],
+            recording_consumer.events,
+        )
 
         self.write_yaml(
             arch_path / "bad-relation.yml",
@@ -233,7 +278,7 @@ class GraphParserTests(unittest.TestCase):
               - from:
                   kind: vendor
                   key: cloudflare
-                type: PROVIDES
+                type: provides
                 to:
                   kind: domain
                   key: missing.example
@@ -246,10 +291,49 @@ class GraphParserTests(unittest.TestCase):
         self.assertFalse(invalid_result.is_valid)
         self.assertEqual([], blocked_consumer.entities)
         self.assertEqual([], blocked_consumer.relations)
+        self.assertEqual([], blocked_consumer.events)
         self.assertTrue(
             any(
                 "Relation references unknown entities" in error.message
                 for error in invalid_result.errors
+            )
+        )
+
+    def test_invalid_relation_type_is_reported(self) -> None:
+        """
+        GIVEN a relation type that violates the lowercase-safe naming rule
+        WHEN the parser validates the relation record
+        THEN we expect a validation error describing the allowed relation type format
+        """
+        tempdir, arch_path = self.make_arch()
+        self.addCleanup(tempdir.cleanup)
+
+        self.write_yaml(
+            arch_path / "graph.yml",
+            """
+            entities:
+              - kind: vendor
+                key: edgecorp
+              - kind: domain
+                key: example-app.test
+            relations:
+              - from:
+                  kind: vendor
+                  key: edgecorp
+                type: Provides
+                to:
+                  kind: domain
+                  key: example-app.test
+            """,
+        )
+
+        result = GraphParser(arch_path).parse()
+
+        self.assertFalse(result.is_valid)
+        self.assertTrue(
+            any(
+                "Relation field 'type' must start with a lowercase letter" in error.message
+                for error in result.errors
             )
         )
 

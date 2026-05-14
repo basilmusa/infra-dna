@@ -46,6 +46,26 @@ You can also run the CLI directly through Python from the same activated environ
 python3 -m infra_dna.cli
 ```
 
+## Development
+
+Activate the repo-local environment before development work:
+
+```bash
+source .venv/bin/activate
+```
+
+Run the test suite from the activated environment:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+If you prefer to invoke the virtual environment directly without activating it:
+
+```bash
+./.venv/bin/python -m unittest discover -s tests -v
+```
+
 ## CLI Usage
 
 ```bash
@@ -120,7 +140,7 @@ relations:
   - from:
       kind: vendor
       key: edgecorp
-    type: PROVIDES
+    type: provides
     to:
       kind: domain
       key: example-app.test
@@ -134,6 +154,7 @@ Rules:
 - each relation must be a mapping
 - each relation must have `from`, `type`, and `to`
 - `from` and `to` must be mappings with non-empty string `kind` and `key`
+- `type` must start with a lowercase letter and contain only lowercase letters, digits, and underscores
 - `props` is optional, but if present must be a mapping
 - relation identity is case-sensitive and unique by `(from.kind, from.key, type, to.kind, to.key)` across all files
 - relation endpoints must reference entities that exist in the parsed entity set
@@ -149,6 +170,15 @@ The parser is strict.
 - all validation errors are collected and printed together
 
 If the run contains any validation error, no records are dispatched to consumers.
+
+## Neo4j Loading Components
+
+The package also exposes library components for loading validated records into Neo4j:
+
+- `Neo4jService(uri, username, password, database=None)` manages the Neo4j driver, executes queries, clears graph contents, and ensures the `:Entity(kind, key)` uniqueness constraint
+- `Neo4jVisitorHandler(service)` implements the parser consumer interface and uses `on_start()` to clear the graph and ensure schema, `on_entity()` to `MERGE` entity nodes, `on_relation()` to `MERGE` relationships, and `on_finish()` to close the service
+
+These components use constructor injection only. They do not read a configuration file, and the current integration point is the Python library rather than a dedicated Neo4j CLI command.
 
 ## Successful Output
 

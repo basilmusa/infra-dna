@@ -4,92 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 import yaml
 
 from .consumers import GraphConsumer
+from .models import EntityRecord, ParseResult, RelationRecord, SourceLocation, ValidationError
 
 ALLOWED_TOP_LEVEL_KEYS = frozenset({"entities", "relations"})
-
-
-@dataclass(frozen=True, slots=True)
-class SourceLocation:
-    """Describes where a record came from."""
-
-    path: Path
-    section: str
-    index: int
-
-    def display(self) -> str:
-        return f"{self.path}:{self.section}[{self.index}]"
-
-
-@dataclass(frozen=True, slots=True)
-class EntityRecord:
-    """Canonical validated entity record."""
-
-    kind: str
-    key: str
-    props: dict[str, Any]
-    source: SourceLocation
-
-    @property
-    def identity(self) -> tuple[str, str]:
-        return (self.kind, self.key)
-
-
-@dataclass(frozen=True, slots=True)
-class RelationRecord:
-    """Canonical validated relation record."""
-
-    from_kind: str
-    from_key: str
-    relation_type: str
-    to_kind: str
-    to_key: str
-    props: dict[str, Any]
-    source: SourceLocation
-
-    @property
-    def identity(self) -> tuple[str, str, str, str, str]:
-        return (
-            self.from_kind,
-            self.from_key,
-            self.relation_type,
-            self.to_kind,
-            self.to_key,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ValidationError:
-    """Aggregated validation error."""
-
-    message: str
-    locations: tuple[SourceLocation, ...] = ()
-
-    def format(self) -> str:
-        if not self.locations:
-            return self.message
-        lines = [self.message]
-        for location in self.locations:
-            lines.append(f"  - {location.display()}")
-        return "\n".join(lines)
-
-
-@dataclass(frozen=True, slots=True)
-class ParseResult:
-    """Result of a parser run."""
-
-    entities: tuple[EntityRecord, ...]
-    relations: tuple[RelationRecord, ...]
-    errors: tuple[ValidationError, ...]
-
-    @property
-    def is_valid(self) -> bool:
-        return not self.errors
-
+RELATION_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 @dataclass(slots=True)
 class _ParserState:
@@ -161,12 +85,21 @@ class GraphParser:
         return result
 
     def _dispatch(self, result: ParseResult) -> None:
-        for entity in result.entities:
+        started_consumers: list[GraphConsumer] = []
+        try:
             for consumer in self._consumers:
-                consumer.on_entity(entity)
-        for relation in result.relations:
-            for consumer in self._consumers:
-                consumer.on_relation(relation)
+                consumer.on_start()
+                started_consumers.append(consumer)
+
+            for entity in result.entities:
+                for consumer in self._consumers:
+                    consumer.on_entity(entity)
+            for relation in result.relations:
+                for consumer in self._consumers:
+                    consumer.on_relation(relation)
+        finally:
+            for consumer in reversed(started_consumers):
+                consumer.on_finish()
 
     def _load_document(self, path: Path, state: _ParserState) -> Any:
         try:
@@ -278,6 +211,13 @@ class GraphParser:
         props = self._extract_props(raw_relation, location, state, "Relation")
 
         if relation_type is None or from_endpoint is None or to_endpoint is None or props is None:
+            return None
+        if not RELATION_TYPE_PATTERN.fullmatch(relation_type):
+            self._add_error(
+                state,
+                "Relation field 'type' must start with a lowercase letter and contain only lowercase letters, digits, and underscores",
+                location=location,
+            )
             return None
 
         relation = RelationRecord(
